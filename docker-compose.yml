@@ -1,0 +1,33 @@
+version: '3.8'
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/app:/app/app  # Map app code for hot-reloading
+      - ./backend/users.txt:/app/users.txt:ro  # Mount users file read-only
+      - backend_user_data:/app/user_data  # Persist user data across container restarts
+      - backend_session_data:/app/session_data  # Persist session data
+      - backend_index_data:/app/data  # Persist index data between container restarts
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}  # Pass API key from host .env file
+      # Set COOKIE_SECRET_KEY here if needed (using default in session_manager.py for now)
+      - WATCHFILES_FORCE_POLLING=true  # May help hot-reloading in Docker
+    networks:
+      - app-network
+
+# Frontend service definition would go here later
+# frontend:
+#   ...
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  backend_user_data:
+  backend_session_data:
+  backend_index_data:  # Added named volume for index storage 

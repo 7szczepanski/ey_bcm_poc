@@ -1,0 +1,11 @@
+{
+  "title": "Business Combination Memo",
+  "sections": [
+    { "id": "intro", "title": "Introduction", "query_hints": ["Purpose of this business combination memo", "Parties involved in the merger", "Brief summary of the transaction"] },
+    { "id": "acquirer", "title": "Identification of the Acquirer", "standard_topic": "IFRS 3.6-7 or ASC 805-10-55-4", "query_hints": ["Which entity is identified as the acquirer?", "What factors determine the acquirer based on IFRS 3 or ASC 805?", "Control transfer details"] },
+    { "id": "acquisition_date", "title": "Determining the Acquisition Date", "standard_topic": "IFRS 3.8-9 or ASC 805-10-25-6", "query_hints": ["What is the acquisition date?", "What date did the acquirer obtain control of the acquiree?", "Closing date of the transaction"] },
+    { "id": "consideration", "title": "Consideration Transferred", "standard_topic": "IFRS 3.37-40 or ASC 805-30-30", "query_hints": ["What is the total consideration transferred?", "Breakdown of consideration (cash, stock, contingent)", "Fair value measurement of consideration components"] },
+    { "id": "assets_liabilities", "title": "Recognising and Measuring Identifiable Assets Acquired and Liabilities Assumed", "standard_topic": "IFRS 3.10-23 or ASC 805-20-25/30", "query_hints": ["What are the major classes of assets acquired?", "What are the major classes of liabilities assumed?", "Basis for measuring assets and liabilities (fair value)", "Intangible assets identified (e.g., customer relationships, technology)"] },
+    { "id": "goodwill", "title": "Recognising and Measuring Goodwill or a Gain from a Bargain Purchase", "standard_topic": "IFRS 3.32-36 or ASC 805-30-30-1", "query_hints": ["Calculation of goodwill", "Is there a gain from a bargain purchase?", "Factors contributing to goodwill"] }
+  ]
+}
