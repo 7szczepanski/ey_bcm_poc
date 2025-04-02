@@ -13,6 +13,7 @@ from langchain.chains import ConversationalRetrievalChain # Using this chain
 
 from app.indexing import load_standard_index, load_agreement_index, embeddings
 from app.models.chat import ChatMessage # Keep this for session data format
+from app.models.structured_output import StructuredMergerData, SectionCompleteness
 
 # --- LLM Initialization --- 
 # Load API key from environment variable set by Docker Compose
@@ -97,35 +98,74 @@ def get_chatbot_response(
         memory_key="chat_history",
         return_messages=True
     )
+    
+    # Convert the chat history format for langchain
     for msg in chat_history:
-        memory.chat_memory.add_message(
-            role=msg["role"],
-            content=msg["content"]
-        )
+        if msg["role"] == "user":
+            memory.chat_memory.add_user_message(msg["content"])
+        elif msg["role"] == "assistant":
+            memory.chat_memory.add_ai_message(msg["content"])
 
-    # Create LLM
-    llm = ChatOpenAI(
-        model_name="gpt-4o-mini", # Or your preferred model
+    # Create base LLM for conversation
+    conversation_llm = ChatOpenAI(
+        model_name="gpt-4o-mini",
         temperature=0.7
     )
-
+    
+    # Create structured output LLM for data extraction
+    structured_llm = conversation_llm.with_structured_output(StructuredMergerData)
+    
+    # Create a custom prompt template for conversation
+    conversation_prompt = ChatPromptTemplate.from_messages([
+        ("system", """You are a helpful assistant that provides information about business combinations and accounting treatments.
+        
+        Answer questions clearly and professionally, based on the context provided.
+        Focus on being accurate and informative while maintaining a conversational tone.
+        """),
+        MessagesPlaceholder(variable_name="chat_history"),
+        ("human", "{question}")
+    ])
+    
     # Create chain
     chain = ConversationalRetrievalChain.from_llm(
-        llm=llm,
-        retriever=standard_retriever,
+        llm=conversation_llm,
+        retriever=agreement_retriever,
         memory=memory,
-        return_source_documents=True
+        return_source_documents=True,
+        combine_docs_chain_kwargs={
+            "prompt": conversation_prompt
+        }
     )
 
     # Get response
     result = chain({"question": message})
+    answer = result["answer"]
     
-    # Extract structured output if present
-    structured_output = {}
-    if hasattr(result, "structured_output"):
-        structured_output = result.structured_output
-
-    return result["answer"], structured_output
+    # Extract structured data using the structured output LLM
+    extraction_prompt = f"""
+    Based on this conversation:
+    
+    User: {message}
+    
+    Your response: {answer}
+    
+    Extract any key information relevant for a business combination memo.
+    Only include fields where you have medium or high confidence in the information.
+    If no relevant information exists for a field, omit it entirely.
+    Focus on factual information with specific details about the business combination.
+    """
+    
+    try:
+        # Use structured output LLM to get properly formatted data
+        structured_data = structured_llm.invoke(extraction_prompt)
+        
+        # Convert to dictionary for compatibility with existing code
+        structured_output = structured_data.model_dump(exclude_none=True)
+        print(f"Extracted structured data: {structured_output}")
+        return answer, structured_output
+    except Exception as e:
+        print(f"Error extracting structured data: {e}")
+        return answer, {}
 
 def process_chat_message(
     session_id: str,

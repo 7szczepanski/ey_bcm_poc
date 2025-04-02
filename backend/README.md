@@ -4,6 +4,8 @@
 
 The Business Combination Memo Generator is a specialized application designed to assist with creating accounting memos for business combinations according to ASC 805 and IFRS standards. The backend component handles API requests, user authentication, session management, standard index loading, merger agreement processing, chatbot logic, and memo generation.
 
+The application is built around an **iterative, conversational assistant** that guides users through the process of creating a comprehensive business combination memo, proactively identifying information gaps and requesting additional details to improve the quality of the final document.
+
 ## Architecture
 
 The backend is implemented as a FastAPI application with the following core components:
@@ -19,29 +21,64 @@ The backend is implemented as a FastAPI application with the following core comp
    - Handles file-based session storage in `/app/session_data/`
    - Manages user state during the application flow
    - Implements session creation, loading, and validation
+   - Tracks conversation history and extracted information between iterations
 
 3. **Document Indexing System** (`indexing.py`, `startup.py`)
    - Processes accounting standards (IFRS and ASC 805) into FAISS vector indexes
    - Handles on-the-fly indexing of user-uploaded agreement PDFs
    - Implements automated index creation and persistence via Docker volumes
+   - Maintains source information for evidence tracking
 
 4. **API Routes** (`api.py`)
    - Exposes endpoints for authentication, standard selection, file upload, chatbot interaction, and memo generation
    - Ensures proper session validation and error handling
    - Coordinates between different service components
+   - Implements iterative memo improvement through `/seed-questions` and `/accept-memo` endpoints
 
 5. **Memo Generation** (`memo_generation.py`)
    - Implements template-based generation of structured business combination memos
    - Integrates with vector search to gather relevant information
    - Organizes content into sections based on accounting standards
+   - Tracks evidence sources (standard references, agreement clauses, chat history)
+   - Evaluates section completeness and generates follow-up questions
+
+### Iterative Memo Generation Approach
+
+The application implements an iterative approach to memo generation:
+
+1. **Initial Generation**: Creates a first draft of the memo using available information from the standard and agreement
+2. **Gap Analysis**: Evaluates each section for completeness and generates specific follow-up questions
+3. **Information Collection**: Uses the chatbot to proactively ask users for missing information
+4. **Structured Extraction**: Parses user responses to extract structured data relevant to memo sections
+5. **Regeneration**: Incorporates new information to produce an improved memo version
+6. **Continuous Improvement**: Repeats steps 2-5 until the memo is complete or accepted by the user
+
+This approach ensures that:
+- The system is always ready to assist, identifying information needs and guiding users
+- The memo evolves incrementally based on user input
+- Complete source evidence is maintained for each statement in the memo
+- Users can track the progress of memo completeness through multiple iterations
+
+### Evidence Tracking and Sourcing
+
+For each section of the memo, the system tracks:
+- References to specific passages in the accounting standard (with page numbers)
+- References to clauses in the merger agreement document (with page numbers)
+- Information provided by the user through chat interactions (with timestamps)
+
+This comprehensive source tracking enables users to verify the accuracy of the memo content and provides a clear audit trail for accounting decisions.
 
 ### Data Flow
 
 1. Users authenticate via the `/api/login` endpoint
 2. After successful login, users select an accounting standard (IFRS or ASC 805)
 3. Users upload a merger agreement PDF, which is processed and indexed
-4. The chatbot enables interaction with both the standard and agreement documents
-5. Memo generation pulls information from both indexes to create a structured document
+4. The system generates an initial memo and identifies information gaps
+5. The chatbot proactively requests missing information from the user
+6. As users provide responses, the system extracts structured data
+7. The memo is regenerated incorporating new information
+8. Steps 5-7 repeat until the memo is complete
+9. Users can accept the final memo when satisfied
 
 ### Directory Structure
 
@@ -78,11 +115,13 @@ The application uses FAISS (Facebook AI Similarity Search) for efficient semanti
    - Created from ASC 805 and IFRS PDFs during container startup
    - Stored in persistent Docker volumes for reuse
    - Loaded with `allow_dangerous_deserialization=True` for version compatibility
+   - Maintains document structure for evidence source tracking
 
 2. **Agreement Indexes**
    - Created at runtime from user-uploaded PDFs
    - Stored in user-specific directories
    - Unique to each user session
+   - Preserves page numbers and context for source referencing
 
 3. **Index Management**
    - `startup.py`: Validates existing indexes and creates new ones if needed
@@ -144,6 +183,7 @@ The project includes two test scripts:
    - Comprehensive API test that walks through the entire application flow
    - Tests login, session verification, standard selection, file upload, chat, and memo generation
    - Verifies cookies and session persistence
+   - Tests the iterative process through seed-questions and follow-up responses
 
 2. **`test_docker_index.sh`**
    - Tests the Docker container index creation and loading
@@ -169,8 +209,43 @@ The project includes two test scripts:
 | `/api/session` | GET | Returns the current session data | Yes |
 | `/api/set-standard` | POST | Sets the accounting standard (IFRS or ASC 805) | Yes |
 | `/api/upload-agreement` | POST | Uploads and indexes a merger agreement PDF | Yes |
-| `/api/chatbot` | POST | Interacts with the indexed documents | Yes |
+| `/api/chatbot` | POST | Interacts with indexed documents and extracts structured data | Yes |
 | `/api/generate-memo` | POST | Creates a structured memo from indexed data | Yes |
+| `/api/seed-questions` | POST | Seeds follow-up questions to the chat | Yes |
+| `/api/accept-memo` | POST | Marks the current memo as finalized | Yes |
+| `/api/evaluate-message` | POST | Evaluates if a message contains data that should trigger regeneration | Yes |
+
+### Auto-Regeneration Feature
+
+The system implements an intelligent auto-regeneration feature that:
+
+1. Automatically extracts structured data from user chat messages
+2. Evaluates whether the extracted data contains meaningful information for the memo
+3. Triggers memo regeneration when significant new information is provided
+4. Returns regeneration status with the chat response
+
+This allows the frontend to provide immediate feedback when user responses have been incorporated into the memo, creating a seamless iterative workflow.
+
+The `/api/chatbot` endpoint now returns an enhanced response:
+
+```json
+{
+  "response": "Thank you for providing that information...",
+  "structured_output": {
+    "acquisition_date": {"value": "2023-01-15", "confidence": "high"},
+    "consideration": {"amount": "500M", "confidence": "high"}
+  },
+  "should_regenerate": true,
+  "detected_fields": ["acquisition_date", "consideration"],
+  "memo": {
+    "regenerated": true,
+    "iteration": 2,
+    "detected_fields": ["acquisition_date", "consideration"]
+  }
+}
+```
+
+For cases where the frontend needs to evaluate a message without sending it to the chat, the `/api/evaluate-message` endpoint can be used to determine if a message contains information that should trigger regeneration.
 
 ## Troubleshooting
 
@@ -214,6 +289,8 @@ If paths are not resolving correctly, Docker logs will show detailed information
 2. **Memory Usage**: The application requires sufficient memory to load the embeddings model and FAISS indices. Ensure Docker has adequate resources allocated (at least 4GB of RAM).
 
 3. **Persistent Volumes**: Using Docker volumes ensures that indices only need to be created once, improving startup time on subsequent runs.
+
+4. **Conversation Management**: The system efficiently manages conversation history between iterations to maintain context while optimizing performance.
 
 ## Security Considerations
 

@@ -1,14 +1,14 @@
-fastapi==0.109.2
-uvicorn==0.27.1
-python-multipart==0.0.9
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-langchain==0.1.9
-langchain-openai==0.0.8
-langchain-community==0.0.27
-faiss-cpu==1.8.0
-pypdf==4.0.2
-sentence-transformers==2.5.1
-python-dotenv==1.0.1
+fastapi
+uvicorn
+langchain
+langchain-openai
+langchain-community
+pydantic
+faiss-cpu
+pypdf
+sentence-transformers
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
 
 # filelock # Optional, skipping for now 

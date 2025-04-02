@@ -4,6 +4,7 @@ from typing import Dict, Any, List, Optional, Tuple
 
 from app.indexing import load_standard_index, load_agreement_index
 from app.models.memo import GeneratedMemo, Section as MemoSection, Evidence as MemoEvidence
+from app.models.structured_output import SectionCompleteness
 
 # Use the actual LLM instance from chatbot module
 from app.chatbot import llm as synthesis_llm # Rename for clarity
@@ -61,6 +62,48 @@ def find_agreement_data(agreement_index, query: str, k: int = 3) -> List[MemoEvi
         print(f"Error querying agreement index for '{query}': {e}")
         return []
 
+def evaluate_section_completeness(section_title: str, section_content: str) -> Tuple[bool, List[str]]:
+    """Evaluates if a section is complete and generates follow-up questions if needed."""
+    if not section_content or "information is not available" in section_content.lower():
+        return False, [f"Can you provide more information about {section_title.lower()}?"]
+    
+    # Use the synthesis LLM with structured output
+    try:
+        # Create a structured output LLM using the SectionCompleteness model
+        structured_llm = synthesis_llm.with_structured_output(SectionCompleteness)
+        
+        # Create a prompt for evaluation
+        prompt = f"""
+        You are evaluating the completeness of a section in a business combination memo.
+        
+        Section Title: {section_title}
+        Section Content: {section_content}
+        
+        Is this section complete or are there important gaps? 
+        If there are gaps, list 1-3 specific follow-up questions that would help complete this section.
+        """
+        
+        # Get structured output directly
+        result = structured_llm.invoke(prompt)
+        
+        # Return the structured values
+        return result.is_complete, result.follow_up_questions
+    except Exception as e:
+        print(f"Error evaluating section completeness: {e}")
+        print(f"Falling back to simple evaluation for '{section_title}'")
+        
+        # Determine completeness based on keywords as a fallback
+        is_complete = all(kw not in section_content.lower() for kw in 
+                          ["insufficient", "not available", "additional information needed", "unclear"])
+            
+        # Provide a generic follow-up question if not complete
+        if not is_complete:
+            questions = [f"Can you provide more details for the {section_title} section?"]
+        else:
+            questions = []
+            
+        return is_complete, questions
+
 def synthesize_section_content(section_title: str, structured_data: Optional[str], standard_evidence: List[MemoEvidence], agreement_evidence: List[MemoEvidence]) -> str:
     """Synthesizes the content for a memo section using the actual LLM."""
     # Construct a more detailed prompt for synthesis
@@ -104,8 +147,8 @@ def generate_memo(
     standard_index, 
     agreement_index, 
     structured_output: Dict[str, Any] = None
-) -> Tuple[GeneratedMemo, List[MemoEvidence]]:
-    """Generates a memo using standard and agreement indexes."""
+) -> Tuple[GeneratedMemo, List[MemoEvidence], List[str]]:
+    """Generates a memo using standard and agreement indexes. Returns memo, evidence, and follow-up questions."""
     if structured_output is None:
         structured_output = {}
     
@@ -116,6 +159,7 @@ def generate_memo(
     
     generated_sections: List[MemoSection] = []
     all_evidence: List[MemoEvidence] = []
+    all_follow_up_questions: List[str] = []
     
     print("Generating memo sections...")
     for section_template in template.get("sections", []):
@@ -153,21 +197,28 @@ def generate_memo(
             section_agreement_evidence
         )
         
-        # 5. Assemble Section
+        # 5. Evaluate completeness and generate follow-up questions
+        is_complete, follow_up_questions = evaluate_section_completeness(section_title, content)
+        if not is_complete:
+            all_follow_up_questions.extend(follow_up_questions)
+            
+        # 6. Assemble Section
         memo_section = MemoSection(
             id=section_id,
             title=section_title,
             content=content,
             evidence=section_standard_evidence + section_agreement_evidence,
-            standard_topic=standard_topic
+            standard_topic=standard_topic,
+            is_complete=is_complete
         )
         generated_sections.append(memo_section)
         all_evidence.extend(memo_section.evidence)
     
     final_memo = GeneratedMemo(
         title=template.get("title", "Business Combination Memo"),
-        sections=generated_sections
+        sections=generated_sections,
+        iteration=structured_output.get("memo_iteration", 1)
     )
     
-    print("Memo generation complete.")
-    return final_memo, all_evidence 
+    print(f"Memo generation complete with {len(all_follow_up_questions)} follow-up questions.")
+    return final_memo, all_evidence, all_follow_up_questions 
